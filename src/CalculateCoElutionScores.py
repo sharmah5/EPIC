@@ -20,6 +20,10 @@ from sklearn import svm
 from sklearn import metrics
 import multiprocessing as mp
 
+# Required packages for CNN approach for protein complex prediction
+from keras.models import Sequential
+from keras.layers import Dense, Reshape
+
 # The following imported libraries are for intergrating GeneMANIA data as Functional Evidence
 import glob
 import sys
@@ -52,8 +56,8 @@ cor3 = robjects.r["Bayes_Corr_Prior3"]
 current_bayes_cor = ""
 
 # Packages required for calculating WCC
-rpackages.importr('wccsom')
-r_wcc = robjects.r['wcc']
+#rpackages.importr('wccsom')
+#r_wcc = robjects.r['wcc']
 
 # array for storing elution matrices with poission noise for PCC + Noise co-elution freature
 Poisson_cor_Mat = []
@@ -1085,6 +1089,174 @@ class CLF_Wrapper:
 	def predict(self, toPred):
 		preds = self.clf.predict(toPred)
 		return preds
+	
+# @ author Florian Goebels, Hari Sharma
+# wrapper for machine learning, including CNN ML approach
+class CLF_Wrapper_Hari:
+	# @author: Florian Goebels, Hari Sharma
+	# class initializer, supports random forest, svm, and cnn.
+	# @Param:
+	#		data matrix with features where each row is a data point
+	#		targets list with class lables
+	# 		forest if true ml is random forst, if false ml is svm
+	#               cnn if true, ml approach used is convolutional neural network
+	#
+	#               Please note that knowledge of the keras package, and its use with CNNs, came from the following sources:
+	#               "Keras Tutorial"       https://machinelearningmastery.com/tutorial-first-neural-network-python-keras/
+	#               "Keras Documentation"  https://keras.io/
+	
+	def __init__(self, num_cores, forest=False, cnn=False, useFeatureSelection= False):
+		self.num_cores = num_cores
+		
+		self.cnn = cnn
+		
+		if cnn:
+			print("using Convolutional Neural Network")
+			
+			thisCLF = ""			
+		
+		elif forest:
+			print("using Random forest")
+			thisCLF = RandomForestClassifier(n_estimators=1000, n_jobs=self.num_cores, random_state=0)
+		else:	
+			print("Using SVM")
+			thisCLF =  svm.SVC(kernel="linear", probability=True)
+			
+		if useFeatureSelection:
+			print("Using Feature selection RFECV")
+			self.clf = Pipeline([
+				('feature_selection', RFECV(estimator=thisCLF, step=1, scoring="accuracy")),
+				('classification', thisCLF)
+			])
+		self.clf = thisCLF
+		
+	def create_cnn_model(self, num_frac):
+		# === First, we need to create our CNN model.
+		
+		# We must first define the shape of our model based on the number of fractions
+		# that is, we need to define our model's input shape.
+		# shape = (num_frac, 2)
+		
+		# We will be using a sequencial network, so that our CNN has a fixed structure, and layers are
+		# appended sequentially.		
+		self.clf = Sequential()
+		#self.clf.add(Reshape(shape, input_shape=(2*num_frac,)))		
+		
+		# Within this network, we will add 4 dense layers (all nodes from one layer is fully connected with
+		# the next and previous layer).
+		# Each layer will have the 1/4 the number of nodes as compared to the previous layer (arbitrarily selected)
+		# The rectifier "relu" activation function is used in all but the last layer, for efficiency/performance.
+		self.clf.add(Dense(1024, input_shape=num_frac, activation="relu"))
+		self.clf.add(Dense(256, activation="relu"))
+		self.clf.add(Dense(64, activation="relu"))
+		self.clf.add(Dense(16, activation="relu"))
+		self.clf.add(Dense(4, activation="relu"))
+		
+		# Since we are performing binary classification (whether the protien complex is a true positive), we will
+		# end the network with a dense layer that uses a sigmoidal activation function.
+		self.clf.add(Dense(1, activation="sigmoid"))
+		
+		# === Next, we need to compile our model
+		
+		# We will compile using the "binary_crossentropy" loss function, and we will use the "adam" gradient descent
+		# algorithm
+		# For simplicity, and since we are dealing with a classification problem, we will use "accuracy" as our metric
+		# for determining the propensity of the model.
+		self.clf.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+		
+		# Our model is now ready to be fitted to our data.		
+
+	def fit(self, data_train, targets_train, num_frac=""):
+		
+		# Check if we want to use our CNN model to fit our data.
+		if (self.cnn == True):
+			
+			# First we create our CNN model based on the number of fractions
+			self.create_cnn_model(num_frac)
+			
+			# We will now fit our CNN model to the data. We will iterate through the dataset 50 times (epochs),
+			# as part of the training. By default, our batch size will be 32 (the number of samples iterated over,
+			# per gradient descent)
+			self.clf.fit(data_train, 
+			             targets_train, 
+			             epochs=50, 
+			             verbose=1, 
+			             batch_size=32)
+		
+		else:
+			self.clf.fit(data, targets)
+
+	def eval(self, data, targets):
+		probs = self.predict_proba(data)
+		preds = self.predict(data)
+		return self.get_metrics(probs, preds, targets)
+
+	def get_metrics(self, probs, preds, targets):
+		precision = metrics.precision_score(targets, preds, average=None)[1]
+		recall = metrics.recall_score(targets, preds, average=None)[1]
+		fmeasure = metrics.f1_score(targets, preds, average=None)[1]
+		auc_pr = average_precision_score(targets, preds)
+		auc_roc = roc_auc_score(targets, preds)
+		curve_pr = precision_recall_curve(targets, probs)
+		curve_roc = roc_curve(targets, probs)
+		return [precision, recall, fmeasure, auc_pr, auc_roc, curve_pr, curve_roc]
+	
+	def cv_eval_cnn(self, data, targets, sc, folds= 5):
+		skf = StratifiedKFold(folds)
+		probs = []
+		preds = []
+		this_targets = []
+		i = 1
+		for train, test in skf.split(data, targets):
+			print "Processing fold %i" % i
+			i += 1
+			
+			print len(sc.header)-2
+			print data[train].shape
+			print targets[train].shape
+			print data[test].shape
+			print targets[test].shape
+			
+			print data[train]
+			print targets[train]
+			print data[test]
+			print targets[test]
+			
+			
+			self.fit(data[train], targets[train], len(sc.header)-2)
+			probs.extend(self.predict_proba(data[test]))
+			preds.extend(self.predict(data[test]))
+			this_targets.extend(targets[test])
+		return self.get_metrics(probs, preds, this_targets)		
+
+	def cv_eval(self, data, targets, folds= 5):
+		skf = StratifiedKFold(folds)
+		probs = []
+		preds = []
+		this_targets = []
+		i = 1
+		for train, test in skf.split(data, targets):
+			print "Processing fold %i" % i
+			i += 1
+			self.fit(data[train], targets[train])
+			probs.extend(self.predict_proba(data[test]))
+			preds.extend(self.predict(data[test]))
+			this_targets.extend(targets[test])
+		return self.get_metrics(probs, preds, this_targets)
+
+
+	# @author: Florian Goebels
+	# @Param:
+	#		toPred matric where each row is a data point and predicts interaction propability for a given set
+	#		note trainer needs to be already trained to be able to predict
+	def predict_proba(self, toPred):
+		probas = self.clf.predict_proba(toPred)
+		return probas[:,1]
+
+	def predict(self, toPred):
+		preds = self.clf.predict(toPred)
+		return preds
+	
 """
 class MLP_wrapper(object):
 

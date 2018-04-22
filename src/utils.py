@@ -96,7 +96,10 @@ def bench_by_PPI_clf(num_folds, scoreCalc, train_gold_complexes, clf):
 
 def cv_bench_clf(scoreCalc, clf, gs, outDir, verbose=False, format="pdf", folds = 10):
 	_, data, targets = scoreCalc.toSklearnData(gs)
-	precision, recall, fmeasure, auc_pr, auc_roc, curve_pr, curve_roc = clf.cv_eval(data, targets, folds)
+	if (clf.cnn == True):
+		precision, recall, fmeasure, auc_pr, auc_roc, curve_pr, curve_roc = clf.cv_eval_cnn(data, targets, scoreCalc, folds)
+	else:
+		precision, recall, fmeasure, auc_pr, auc_roc, curve_pr, curve_roc = clf.cv_eval(data, targets, folds)
 	plotCurves([("", curve_roc)], outDir + ".roc." + format, "False Positive rate", "True Positive Rate")
 	recall_vals, precision_vals, threshold = curve_pr
 	plotCurves([("", (precision_vals, recall_vals))], outDir + ".pr." + format, "Recall", "Precision")
@@ -179,9 +182,16 @@ def plotCurves(curves, outF, xlab, ylab):
 def predictInteractions(scoreCalc, clf, gs, to_train=True, verbose= True):
 
 	ids_train, data_train, targets_train = scoreCalc.toSklearnData(gs)
+	
+	print ids_train
+	print data_train.shape
+	print targets_train.shape
 
-
-	if to_train: clf.fit(data_train, targets_train)
+	if to_train: 
+		if clf.cnn == True:
+			clf.fit(data_train, targets_train, data_train.shape)
+		else:
+			clf.fit(data_train, targets_train)
 
 	num_features = data_train.shape[1]
 

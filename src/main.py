@@ -51,7 +51,7 @@ def main():
 	parser.add_argument("output_dir", type = str,help="Directory containing the output files")
 	parser.add_argument("-o", "--output_prefix", type = str,help="Prefix name for all output Files", default="Out")
 
-	parser.add_argument("-M", "--classifier", type = str,help="Select which classifier to use. Values: RF SVM, default RF",
+	parser.add_argument("-M", "--classifier", type = str,help="Select which classifier to use. Values: RF SVM CNN, default RF",
 						default="RF")
 	parser.add_argument("-n", "--num_cores", type = int,help="Number of cores to be used, default 1",
 						default=1)
@@ -89,9 +89,14 @@ def main():
 	this_scores = utils.get_fs_comb(args.feature_selection)
 	print "\t".join([fs.name for fs in this_scores])
 
-	# Initialize CLF
+	# Initialize CLF to use new CNN CLF Wrapper, if CNN is desired as ML method.
  	use_rf = args.classifier == "RF"
-	clf = CS.CLF_Wrapper(args.num_cores, use_rf)
+	
+	if (args.classifier == "CNN"):
+		use_cnn = True
+		clf = CS.CLF_Wrapper_Hari(args.num_cores, use_rf, use_cnn)
+	else:
+		clf = CS.CLF_Wrapper(args.num_cores, use_rf)
 
 	# Load elution data
  	foundprots, elution_datas = utils.load_data(args.input_dir, this_scores, fc=args.frac_count, mfc=args.elution_max_count)
@@ -137,6 +142,7 @@ def main():
  		scoreCalc.readTable(args.precalcualted_score_file, gs)
 
 	print scoreCalc.scores.shape
+	print len(scoreCalc.header)-2
 
 	functionalData = ""
 	gs.positive = set(gs.positive & set(scoreCalc.ppiToIndex.keys()))
@@ -154,18 +160,18 @@ def main():
 		print "Dimension of fun anno " + str(functionalData.scores.shape)
 
 
-	print "Start benchmarking"
+	#print "Start benchmarking"
 
-	if args.mode == "EXP":
-		utils.cv_bench_clf(scoreCalc, clf, gs, output_dir, format="png", verbose=True, folds = 2)
+	#if args.mode == "EXP":
+		#utils.cv_bench_clf(scoreCalc, clf, gs, output_dir, format="png", verbose=True, folds = 2)
 
-	if args.mode == "COMB":
-		tmp_sc = copy.deepcopy(scoreCalc)
-		tmp_sc.add_fun_anno(functionalData)
-		utils.cv_bench_clf(tmp_sc, clf, gs, output_dir, format="png", verbose=True, folds= 2)
+	#if args.mode == "COMB":
+		#tmp_sc = copy.deepcopy(scoreCalc)
+		#tmp_sc.add_fun_anno(functionalData)
+		#utils.cv_bench_clf(tmp_sc, clf, gs, output_dir, format="png", verbose=True, folds= 2)
 
-	if args.mode == "FA":
-		utils.cv_bench_clf(functionalData, clf, gs, output_dir, format="png", verbose=True, folds= 2)
+	#if args.mode == "FA":
+		#utils.cv_bench_clf(functionalData, clf, gs, output_dir, format="png", verbose=True, folds= 2)
 
 	# PPI evaluation
 	#print utils.bench_by_PPI_clf(5, scoreCalc, gs, args.output_dir, clf, verbose=False)
