@@ -1166,7 +1166,7 @@ class CLF_Wrapper_Hari:
 		
 		# Our model is now ready to be fitted to our data.		
 
-	def fit(self, data_train, targets_train, num_frac=""):
+	def fit(self, data_train, targets_train, data_eval = "", train_eval = "", num_frac=""):
 		
 		# Check if we want to use our CNN model to fit our data.
 		if (self.cnn == True):
@@ -1181,7 +1181,8 @@ class CLF_Wrapper_Hari:
 			             targets_train, 
 			             epochs=50, 
 			             verbose=1, 
-			             batch_size=32)
+			             batch_size=32, 
+			             validation_data=(data_eval, train_eval))
 		
 		else:
 			self.clf.fit(data, targets)
@@ -1223,7 +1224,7 @@ class CLF_Wrapper_Hari:
 			print targets[test]
 			
 			
-			self.fit(data[train], targets[train], len(sc.header)-2)
+			self.fit(data[train], targets[train], data[test], targets[test], len(sc.header)-2)
 			probs.extend(self.predict_proba(data[test]))
 			preds.extend(self.predict(data[test]))
 			this_targets.extend(targets[test])
